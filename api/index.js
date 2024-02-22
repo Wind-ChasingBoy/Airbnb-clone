@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
+// const { MongoClient } = require("mongodb");
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('./models/User');
@@ -28,6 +29,8 @@ app.use(cors({
 }));
 
 mongoose.connect(process.env.MONGO_URL);
+// const client = new MongoClient(process.env.MONGO_URL);
+// client.connect();
 
 app.get('/test', (req, res) => {
     res.json('test ok');
