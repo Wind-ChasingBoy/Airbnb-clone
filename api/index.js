@@ -13,15 +13,34 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const { json } = require('express');
+const { body, validationResult } = require('express-validator');
+const logger = require('./logger.js');
+const helmet = require('helmet');
 require('dotenv').config()
 
 const app = express();
 
 const bcryptSalt = bcrypt.genSaltSync(10);
-const jwtSecret = 'fnqeiorhfsdnfmvdnjdiaiuefsidfnksajfn';
+// const jwtSecret = 'fnqeiorhfsdnfmvdnjdiaiuefsidfnksajfn';
+// retrieve jwtSecret from environment variables.
+const jwtSecret = process.env.JWT_SECRET || 'fnqeiorhfsdnfmvdnjdiaiuefsidfnksajfn';
 
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'"],
+            // other strategies can be added……
+        }
+    }
+}));
 app.use(express.json());
 app.use(cookieParser());
+app.use((err, req, res, next) => {
+    logger.error(err.stack);
+    res.status(500).send('Something went wrong!');
+});// log errors
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(cors({
     credentials: true,
@@ -33,10 +52,21 @@ mongoose.connect(process.env.MONGO_URL);
 // client.connect();
 
 app.get('/test', (req, res) => {
+    logger.info('Test endpoint called.');
     res.json('test ok');
 });
 
-app.post('/register', async (req, res) => {
+app.post('/register',[
+    // Validate name
+    body('name').notEmpty().isString(),
+
+    // Validate email
+    body('email').notEmpty().isEmail(),
+
+    // Validate password
+    body('password').notEmpty().isString(),
+], async (req, res) => {
+    logger.info('Register endpoint called.');
     const { name, email, password } = req.body;
     try {
         const userDoc = await User.create({
@@ -51,6 +81,7 @@ app.post('/register', async (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
+    logger.info('Login endpoint called.');
     const { email, password } = req.body;
     const userDoc = await User.findOne({ email })
     if (userDoc) {
@@ -69,6 +100,7 @@ app.post('/login', async (req, res) => {
 });
 
 app.get('/profile', (req, res) => {
+    logger.info('Profile endpoint called.');
     const { token } = req.cookies;
     if (token) {
         jwt.verify(token, jwtSecret, {}, async (err, userData) => {
@@ -82,10 +114,12 @@ app.get('/profile', (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
+    logger.info('Logout endpoint called.');
     res.cookie('token', '').json(true);
 })
 
 app.post('/upload-by-link', async (req, res) => {
+    logger.info('Upload-by-link endpoint called.');
     const { link } = req.body;
     const newName = 'photo' + Date.now() + '.jpg';
     await imageDownloader.image({
@@ -97,6 +131,7 @@ app.post('/upload-by-link', async (req, res) => {
 
 const photosMiddleware = multer({ dest: 'uploads' });
 app.post('/upload', photosMiddleware.array('photos', 100), (req, res) => {
+    logger.info('Upload endpoint called.');
     const uploadFiles = [];
     for (let i = 0; i < req.files.length; i++) {
         const { path, originalname } = req.files[i];
@@ -110,6 +145,7 @@ app.post('/upload', photosMiddleware.array('photos', 100), (req, res) => {
 });
 
 app.post('/places', (req, res) => {
+    logger.info('Places endpoint called.');
     const { token } = req.cookies;
     const { title, address, addedPhotos, description, perks, extraInfo, checkIn, checkOut, maxGuests, price } = req.body;
     jwt.verify(token, jwtSecret, {}, async (err, userData) => {
@@ -123,6 +159,7 @@ app.post('/places', (req, res) => {
 });
 
 app.get('/user-places', (req, res) => {
+    logger.info('User-places endpoint called.');
     const { token } = req.cookies;
     jwt.verify(token, jwtSecret, {}, async (err, userData) => {
         const { id } = userData;
@@ -131,11 +168,13 @@ app.get('/user-places', (req, res) => {
 })
 
 app.get('/places/:id', async (req, res) => {
+    logger.info('Places:id endpoint called.');
     const { id } = req.params;
     res.json(await Place.findById(id));
 })
 
 app.put('/places', async (req, res) => {
+    logger.info('Put places endpoint called.');
     const { token } = req.cookies;
     const { id, title, address, addedPhotos, description, perks, extraInfo, checkIn, checkOut, maxGuests, price } = req.body;
     const placeDoc = await Place.findById(id);
@@ -151,10 +190,12 @@ app.put('/places', async (req, res) => {
 });
 
 app.get('/places', async (req, res) => {
+    logger.info('Get places endpoint called.');
     res.json(await Place.find());
 })
 
 app.post('/bookings', async (req, res) => {
+    logger.info('Post bookings endpoint called.');
     const userData = await getUserDataFromReq(req);
     const { place, checkIn, checkOut, numberOfGuests, name, phone, price } = req.body;
     Booking.create({
@@ -178,8 +219,10 @@ function getUserDataFromReq(req) {
 }
 
 app.get('/bookings', async (req, res) => {
+    logger.info('Get bookings endpoint called.');
     const userData = await getUserDataFromReq(req);
     res.json(await Booking.find({ user: userData.id }).populate('place'));
 })
 
 app.listen(4000);
+
