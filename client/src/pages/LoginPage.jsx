@@ -8,15 +8,51 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [redirect, setRedirect] = useState(false);
   const { setUser } = useContext(UserContext);
+
+  // 过滤特殊字符和HTML编码
+  function sanitizeInput(input) {
+    const filteredInput = input.replace(/[&<>"'/]/g, function (char) {
+      switch (char) {
+        case "&":
+          return "&amp;";
+        case "<":
+          return "&lt;";
+        case ">":
+          return "&gt;";
+        case '"':
+          return "&quot;";
+        case "'":
+          return "&#x27;";
+        case "/":
+          return "&#x2F;";
+        default:
+          return char;
+      }
+    });
+    return filteredInput;
+  }
+
   async function handleLoginSubmit(ev) {
     ev.preventDefault();
+
+    // 进行输入验证和过滤
+    const sanitizedEmail = sanitizeInput(email);
+    const sanitizedPassword = sanitizeInput(password);
+
     try {
-      const response = await axios.post("/login", { email, password });
-      setUser(response.data);
-      alert("Login successful");
-      setRedirect(true);
+      const response = await axios.post("/login", {
+        email: sanitizedEmail,
+        password: sanitizedPassword,
+      });
+      if (response.data != "not found" && response.status === 200) {
+        setUser(response.data);
+        alert("Login successful");
+        setRedirect(true);
+      } else {
+        alert("Login failed. Please try again.");
+      }
     } catch (e) {
-      alert("Login failed");
+      alert("Login failed. Please try again.");
     }
   }
 

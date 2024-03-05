@@ -16,9 +16,15 @@ export default function AccountPage() {
   }
 
   async function logout() {
-    await axios.post("/logout");
-    setRedirect("/");
-    setUser(null);
+    try {
+      await axios.post("/logout");
+      setUser(null); // 确保注销后清除用户状态
+      setRedirect("/login");
+    } catch (error) {
+      console.error("Logout failed", error);
+      // 处理注销失败的情况，例如显示错误消息
+      alert("发生错误，注销失败");
+    }
   }
 
   if (!ready) {

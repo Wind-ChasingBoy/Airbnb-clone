@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-// const { MongoClient } = require("mongodb");
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('./models/User');
@@ -41,22 +40,24 @@ app.use((err, req, res, next) => {
     logger.error(err.stack);
     res.status(500).send('Something went wrong!');
 });// log errors
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(cors({
     credentials: true,
     origin: 'http://localhost:5173',
 }));
+app.use((req, res, next) => {
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+});
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 mongoose.connect(process.env.MONGO_URL);
-// const client = new MongoClient(process.env.MONGO_URL);
-// client.connect();
 
 app.get('/test', (req, res) => {
     logger.info('Test endpoint called.');
     res.json('test ok');
 });
 
-app.post('/register',[
+app.post('/register', [
     // Validate name
     body('name').notEmpty().isString(),
 
@@ -69,33 +70,48 @@ app.post('/register',[
     logger.info('Register endpoint called.');
     const { name, email, password } = req.body;
     try {
+        // 检查邮箱是否已存在
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(409).json({ error: "Email already in use" });
+        }
         const userDoc = await User.create({
             name,
             email,
             password: bcrypt.hashSync(password, bcryptSalt),
         });
-        res.json(userDoc);
+        // 返回时排除密码字段
+        const { password: _, ...userInfo } = userDoc.toObject();
+        res.json(userInfo);
     } catch (e) {
-        res.status(422).json(e);
+        res.status(422).json({ error: "Unable to register user" });
     }
 });
 
 app.post('/login', async (req, res) => {
     logger.info('Login endpoint called.');
     const { email, password } = req.body;
-    const userDoc = await User.findOne({ email })
-    if (userDoc) {
-        const passOK = bcrypt.compareSync(password, userDoc.password)
-        if (passOK) {
-            jwt.sign({ email: userDoc.email, id: userDoc._id }, jwtSecret, {}, (err, token) => {
-                if (err) throw err;
-                res.cookie('token', token).json(userDoc);
-            });
-        } else {
-            res.status(422).json('pass not ok');
+    try {
+        const userDoc = await User.findOne({ email });
+        if (!userDoc) {
+            return res.status(401).json({ error: 'Email or password is incorrect.' });
         }
-    } else {
-        res.json('not found');
+
+        const passOK = await bcrypt.compare(password, userDoc.password); // 使用异步版本
+        if (!passOK) {
+            return res.status(401).json({ error: 'Email or password is incorrect.' });
+        }
+
+        jwt.sign({ email: userDoc.email, id: userDoc._id }, jwtSecret, { expiresIn: '1h' }, (err, token) => {
+            if (err) {
+                logger.error('Error signing token', err);
+                return res.status(500).json({ error: 'Error generating authentication token.' });
+            }
+            res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'strict' }).json({ message: "Login successful" });
+        });
+    } catch (error) {
+        logger.error('Login error', error);
+        res.status(500).json({ error: 'An error occurred during the login process.' });
     }
 });
 
@@ -208,21 +224,49 @@ app.post('/bookings', async (req, res) => {
     });
 });
 
-function getUserDataFromReq(req) {
-    return new Promise((resolve, reject) => {
-        jwt.verify(req.cookies.token, jwtSecret, {}, async (err, userData) => {
-            if (err) throw err;
-            resolve(userData);
-        });
-    });
+app.get('/bookings/:id', async (req, res) => {
+    try {
+        const userData = await getUserDataFromReq(req);
+        if (!userData) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+        const booking = await Booking.findById(req.params.id).populate('place');
+        if (!booking) {
+            return res.status(404).json({ error: "Booking not found" });
+        }
 
-}
+        if (booking.user.toString() !== userData.id) {
+            return res.status(403).json({ error: "Forbidden" });
+        }
+
+        res.json(booking);
+    } catch (error) {
+        console.error("Error fetching booking:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
 
 app.get('/bookings', async (req, res) => {
     logger.info('Get bookings endpoint called.');
     const userData = await getUserDataFromReq(req);
     res.json(await Booking.find({ user: userData.id }).populate('place'));
-})
+});
+
+function getUserDataFromReq(req) {
+    return new Promise((resolve, reject) => {
+        const { token } = req.cookies;
+        if (!token) {
+            return reject(new Error("No token provided"));
+        }
+
+        jwt.verify(token, jwtSecret, {}, (err, userData) => {
+            if (err) {
+                return reject(err);
+            }
+            resolve(userData);
+        });
+    });
+}
 
 app.listen(4000);
 

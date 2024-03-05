@@ -10,14 +10,17 @@ export default function BookingPage() {
   const [booking, setBooking] = useState(null);
   useEffect(() => {
     if (id) {
-      axios.get("/bookings").then((response) => {
-        const foundBooking = response.data.find(({ _id }) => _id === id);
-        if (foundBooking) {
-          setBooking(foundBooking);
-        }
-      });
+      axios
+        .get(`/bookings/${id}`)
+        .then((response) => {
+          setBooking(response.data);
+        })
+        .catch((error) => {
+          console.error("Failed to fetch booking:", error);
+          alert("出错啦");
+        });
     }
-  });
+  }, [id]);
 
   if (!booking) {
     return "";
